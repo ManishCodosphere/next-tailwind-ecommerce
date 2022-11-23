@@ -51,4 +51,18 @@
    3. save connection url in .env file
    4. create db utils file
    5. create sample users
-
+14. Create Login API
+   1. install next-auth
+   2. create nextauth.js
+   3. implement signin
+   4. use signin in login form
+15. Add User Menu
+   1. check user authentication
+   2. install headlessui
+   3. show user menu
+16. Create Shipping Screen
+   1. display address fields
+   2. save address in context
+17. Create Payment Screen
+   1. display payment methods
+   2. save payment methods in context
