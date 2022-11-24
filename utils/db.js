@@ -31,6 +31,7 @@ async function disconnect(){
     }
 }
 
+
 function convertDocToObj(doc){
     doc._id = doc._id.toString();
     doc.createdAt = doc.createdAt.toString();
@@ -40,3 +41,4 @@ function convertDocToObj(doc){
 
 const db = {connect,disconnect,convertDocToObj}
 export default db;
+
