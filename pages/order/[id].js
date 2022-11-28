@@ -1,5 +1,6 @@
 import { PayPalButtons, usePayPalScriptReducer } from "@paypal/react-paypal-js";
 import axios from "axios";
+import { useSession } from "next-auth/react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -17,24 +18,34 @@ function reducer(state, action) {
         case "FETCH_FAIL":
             return { ...state, loading: false, error: action.payload };
         case "PAY_REQUEST":
-            return { ...state, loadingPay: true};
+            return { ...state, loadingPay: true };
         case "PAY_SUCCESS":
-            return { ...state, loadingPay: false, successPay: true};
+            return { ...state, loadingPay: false, successPay: true };
         case "PAY_FAIL":
             return { ...state, loadingPay: false, errorPay: action.payload };
         case "PAY_RESET":
-            return { ...state, loadingPay: false, successPay: false, errorPay: ''};
+            return { ...state, loadingPay: false, successPay: false, errorPay: "" };
+        case "DELIVER_REQUEST":
+            return { ...state, loadingDeliver: true };
+        case "DELIVER_SUCCESS":
+            return { ...state, loadingDeliver: false, successDeliver:true };
+        case "DELIVER_FAIL":
+            return { ...state, loadingDeliver: false, };
+        case "DELIVER_RESET":
+            return { ...state, loadingDeliver: false, successDeliver: false, };
         default:
             state;
     }
 }
 
 function OrderScreen() {
-    const [{isPending}, paypalDispatch] = usePayPalScriptReducer();
+
+    const { data:session} = useSession();
+    const [{ isPending }, paypalDispatch] = usePayPalScriptReducer();
     const { query } = useRouter();
     const orderId = query.id;
 
-    const [{ loading, error, order, successPay, loadingPay }, dispatch] = useReducer(reducer, {
+    const [{ loading, error, order, successPay, loadingPay, loadingDeliver, successDeliver }, dispatch] = useReducer(reducer, {
         loading: true,
         order: {},
         error: "",
@@ -49,26 +60,30 @@ function OrderScreen() {
                 dispatch({ type: "FETCH_FAIL", payload: getError(err) });
             }
         };
-        if (!order._id || successPay || (order._id && order._id !== orderId)) {
+        if (!order._id || successPay ||
+            successDeliver || (order._id && order._id !== orderId)) {
             fetchOrder();
-            if(successPay){
-                dispatch({ type: 'PAY_RESET'});
-            } 
+            if (successPay) {
+                dispatch({ type: "PAY_RESET" });
+            }
+            if (successDeliver) {
+                dispatch({ type: "DELIVER_RESET" });
+            }
         } else {
             const loadPaypalScript = async () => {
-                const {data: clientId} = await axios.get('/api/keys/paypal');
+                const { data: clientId } = await axios.get("/api/keys/paypal");
                 paypalDispatch({
-                    type:'resetOptions',
-                    value:{
-                        'client-id': clientId,
-                        currency:'USD',
-                    }
+                    type: "resetOptions",
+                    value: {
+                        "client-id": clientId,
+                        currency: "USD",
+                    },
                 });
-                paypalDispatch({type:'setLoadingStatus', value:'pending'});
+                paypalDispatch({ type: "setLoadingStatus", value: "pending" });
             };
             loadPaypalScript();
         }
-    }, [order, orderId,paypalDispatch, successPay]);
+    }, [order, orderId, paypalDispatch, successDeliver,successPay]);
 
     const {
         shippingAddress,
@@ -83,45 +98,53 @@ function OrderScreen() {
         deliveredAt,
     } = order;
 
-    function createOrder(data, action){
-        return action.order.create({
-            purchase_units:[
-                {
-                    amount:{value: totalPrice},
-                }
-            ]
-        })
-        .then((orderId) =>{
-            return orderId;
-        });
+    function createOrder(data, action) {
+        return action.order
+            .create({
+                purchase_units: [
+                    {
+                        amount: { value: totalPrice },
+                    },
+                ],
+            })
+            .then((orderId) => {
+                return orderId;
+            });
     }
 
-    function onApprove(data,actions){
-        return actions.order.capture().then(async function (details){
-            try{
-                dispatch({type: 'PAY_REQUEST'});
-                const { data } = await axios.put(
-                    `/api/orders/${order._id}/pay`,
-                    details
-                );
-                dispatch({type: 'PAY_SUCCESS', payload: data});
-                toast.success('order is paid successfully');
+    function onApprove(data, actions) {
+        return actions.order.capture().then(async function (details) {
+            try {
+                dispatch({ type: "PAY_REQUEST" });
+                const { data } = await axios.put(`/api/orders/${order._id}/pay`, details);
+                dispatch({ type: "PAY_SUCCESS", payload: data });
+                toast.success("order is paid successfully");
             } catch (err) {
-                dispatch({ type: 'PAY_FAIL', payload: getError(err)});
+                dispatch({ type: "PAY_FAIL", payload: getError(err) });
             }
         });
     }
-    function onError(err){
+    function onError(err) {
         toast.error(getError(err));
     }
 
+    async function deliverOrderHandler(){
+        try{
+            dispatch({type: "DELIVER_REQUEST"});
+            const { data } = await axios.put(`/api/admin/orders/${order._id}/deliver`,{})
+            dispatch({type: "DELIVER_SUCCESS", payload: data});
+            toast.success('Order is delivered ');       
+        } catch (err) {
+        dispatch({ type: "DELIVER_FAIL", payload: getError(err)});
+        toast.error(getError(err));
+    }
+    }
     return (
         <Layout title={`Order ${orderId}`}>
             <h1 className="mb-4 text-xl">{`Order ${orderId}`}</h1>
             {loading ? (
                 <div>Loading...</div>
-            ) : 
-                error ? (
+            ) : error ? (
                 <div className="alert-error">{error}</div>
             ) : (
                 <div className="grid md:grid-cols-4 md:gap-5">
@@ -208,25 +231,32 @@ function OrderScreen() {
                                 </li>
                                 {!isPaid && (
                                     <li>
-                                        {isPending ? ( <div>Loading...</div>
-                                        ):
-                                        (
+                                        {isPending ? (
+                                            <div>Loading...</div>
+                                        ) : (
                                             <div className="w-full">
                                                 <PayPalButtons
-                                                createOrder={createOrder}
-                                                onApprove={onApprove}
-                                                onError={onError}
+                                                    createOrder={createOrder}
+                                                    onApprove={onApprove}
+                                                    onError={onError}
                                                 ></PayPalButtons>
                                             </div>
                                         )}
                                         {loadingPay && <div>Loading...</div>}
                                     </li>
                                 )}
+                                {session.user.isAdmin && order.isPaid && !order.isDelivered && (
+                                    <li>
+                                        {loadingDeliver && <div>Loading...</div>}
+                                        <button className="primary-button w-full" onClick={deliverOrderHandler}>
+                                            Deliver Order
+                                        </button>
+                                    </li>
+                                )}
                             </ul>
                         </div>
                     </div>
                 </div>
-            
             )}
         </Layout>
     );
